@@ -22,7 +22,7 @@ public interface IContext {
     /**
      * 表示网关请求结束
      */
-    int terminated = 2;
+    int Terminated = 2;
 
     /**
      * 设置上下文状态为运行中.
@@ -88,7 +88,7 @@ public interface IContext {
      *
      * @return
      */
-    Throwable getThrownable();
+    Throwable getThrowable();
 
     /**
      * 设置异常对象.
