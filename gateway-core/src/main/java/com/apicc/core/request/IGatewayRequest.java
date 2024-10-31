@@ -1,5 +1,8 @@
 package com.apicc.core.request;
 
+import io.netty.handler.codec.http.cookie.Cookie;
+import org.asynchttpclient.Request;
+
 /**
  * 提供可修改的Request参数操作接口.
  */
