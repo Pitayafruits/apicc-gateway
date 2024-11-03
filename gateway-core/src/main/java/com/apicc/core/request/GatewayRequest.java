@@ -1,17 +1,20 @@
 package com.apicc.core.request;
 
-import io.netty.handler.codec.http.FullHttpRequest;
-import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.QueryStringDecoder;
+import com.apicc.common.constants.BasicConst;
+import com.apicc.common.utils.TimeUtil;
+import com.google.common.collect.Lists;
+import com.jayway.jsonpath.JsonPath;
+import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.Cookie;
+import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 import org.asynchttpclient.Request;
 import org.asynchttpclient.RequestBuilder;
 
 import java.nio.charset.Charset;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 网关请求对象
@@ -70,19 +73,19 @@ public class GatewayRequest implements IGatewayRequest {
      * 请求方式.
      */
     @Getter
-    private final HttpMethod httpMethod;
+    private final HttpMethod method;
 
     /**
      * 请求的格式.
      */
     @Getter
-    private final HttpMethod contentType;
+    private final String contentType;
 
     /**
      * 请求头.
      */
     @Getter
-    private final HttpHeaders httpHeaders;
+    private final HttpHeaders headers;
 
     /**
      * 参数解析器.
@@ -139,26 +142,113 @@ public class GatewayRequest implements IGatewayRequest {
                           String host,
                           String path,
                           String uri,
-                          HttpMethod httpMethod,
-                          HttpMethod contentType,
-                          HttpHeaders httpHeaders,
+                          HttpMethod method,
+                          String contentType,
+                          HttpHeaders headers,
                           QueryStringDecoder queryStringDecoder,
                           FullHttpRequest fullHttpRequest,
                           RequestBuilder requestBuilder) {
         this.uniqueId = uniqueId;
-        this.brginTime = brginTime;
+        this.brginTime = TimeUtil.currentTimeMillis();
         this.endTime = endTime;
         this.charset = charset;
         this.clientIp = clientIp;
         this.host = host;
         this.path = path;
         this.uri = uri;
-        this.httpMethod = httpMethod;
+        this.method = method;
         this.contentType = contentType;
-        this.httpHeaders = httpHeaders;
-        this.queryStringDecoder = queryStringDecoder;
+        this.headers = headers;
+        this.queryStringDecoder = new QueryStringDecoder(uri, charset);
         this.fullHttpRequest = fullHttpRequest;
-        this.requestBuilder = requestBuilder;
+        this.requestBuilder = new RequestBuilder();
+
+        this.modifyHost = host;
+        this.modifyPath = path;
+        this.modifyScheme = BasicConst.HTTP_PREFIX_SEPARATOR;
+
+        this.requestBuilder.setMethod(getMethod().name());
+        this.requestBuilder.setHeaders(getHeaders());
+        this.requestBuilder.setQueryParams(queryStringDecoder.parameters());
+
+        ByteBuf contentBuffer = fullHttpRequest.content();
+        if (Objects.nonNull(contentBuffer)) {
+            this.requestBuilder.setBody(contentBuffer.nioBuffer());
+        }
+    }
+
+    /**
+     * 获取请求体.
+     *
+     * @return 请求体
+     */
+    public String getBody() {
+        if (StringUtils.isEmpty(body)) {
+            body = fullHttpRequest.content().toString(charset);
+        }
+        return body;
+    }
+
+
+    /**
+     * 获取Cookie.
+     *
+     * @return Cookie
+     */
+    public Cookie getCookie(String name) {
+        if (cookieMap == null) {
+            cookieMap = new HashMap<String, Cookie>();
+            String cookieStr = getHeaders().get(HttpHeaderNames.COOKIE);
+            Set<Cookie> cookies = ServerCookieDecoder.STRICT.decode(cookieStr);
+            for (Cookie cookie : cookies) {
+                cookieMap.put(name, cookie);
+            }
+        }
+        return cookieMap.get(name);
+    }
+
+    /**
+     * 获取指定名称的参数.
+     *
+     * @return 参数值
+     */
+    public List<String> getQueryParametersMultiple(String name) {
+        return queryStringDecoder.parameters().get(name);
+    }
+
+    /**
+     * 获取Post请求指定名称的参数.
+     *
+     * @return 参数值
+     */
+    public List<String> getPostParametersMultiple(String name) {
+        String body = getBody();
+        if (isFormPost()) {
+            if (postParameters == null) {
+                QueryStringDecoder paramDecoder = new QueryStringDecoder(body, false);
+                postParameters = paramDecoder.parameters();
+            }
+            if (postParameters == null || postParameters.isEmpty()) {
+                return null;
+            } else {
+                return postParameters.get(name);
+            }
+        } else if (isJsonPost()) {
+            return Lists.newArrayList(JsonPath.read(body, name).toString());
+        }
+        return null;
+    }
+
+
+    public boolean isFormPost() {
+        return HttpMethod.POST.equals(method) && (
+                contentType.startsWith(HttpHeaderValues.FORM_DATA.toString())
+                        ||
+                        contentType.startsWith(HttpHeaderValues.APPLICATION_X_WWW_FORM_URLENCODED.toString()));
+    }
+
+    public boolean isJsonPost() {
+        return HttpMethod.POST.equals(method) && contentType.startsWith(HttpHeaderValues.APPLICATION_JSON.toString());
     }
 
     @Override
